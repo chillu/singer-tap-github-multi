@@ -1,6 +1,21 @@
 # Github Multi Repo Singer Integration
 
-## Manual Import from BigQuery
+*WARNING: Early stage repo, only dealing with manual import helpers at the moment*
+
+[Singer](https://singer.io/) data warehouse integration to
+efficiently load Github data from multiple repos.
+It's an alternative implementation to Singer's own [tap-github](https://github.com/singer-io/tap-github))
+which only loads data for one repo (see [issue](https://github.com/singer-io/tap-github/issues/19)).
+
+Supported data:
+
+ * Github events
+
+## Automated import from Github API
+
+TODO Implement
+
+## Manual Events Import from BigQuery
 
 Depending on how many repos you're analysing,
 there can be gigabytes of historical event data.
