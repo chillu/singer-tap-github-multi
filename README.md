@@ -20,15 +20,16 @@ it can get quite expensive (dollars per query).
 1. Adjust date range in `import.sql`.
    It will get all event data. Adjust the date ranges accordingly.
 1. Copy query results into the destination table (replace values):
-   ```cat import.sql | bq query --destination_table bq mk <my-dataset>.<my-table>```
+   ```cat import.sql | bq query --destination_table <my-dataset>.<my-table>```
 1. Extract table into CSV
-   ```bq extract <my-dataset>.<my-table> gs://<my-bucket>/<my-table>.csv```
-1. Download CSV
-   ```gsutil cp gs://<my-bucket>/<my-table>.csv .```
+   ```bq extract --destination_format=NEWLINE_DELIMITED_JSON --compression=GZIP <my-dataset>.<my-table> gs://<my-bucket>/<my-table>.json.gz```
+1. Download and extract your data
+   ```gsutil cp gs://<my-bucket>/<my-table>.json.gz .```
+   ```gzip -d <my-table>.json.gz```
 
 Now you're ready to import into Stichdata!
 
 1. Set up a new Stitchdata "Import API" integration, note table name and token for use below
 1. Get the Stitchdata [client ID](https://www.stitchdata.com/docs/integrations/import-api#client-id)
 1. Run importer
-   ```STITCHDATA_CLIENT_ID=<id> STITCHDATA_ACCESS_TOKEN=<token> bin/singer-github import-csv <stitchdata-table-name> <my-table>.csv```
+   ```STITCHDATA_CLIENT_ID=<id> STITCHDATA_ACCESS_TOKEN=<token> bin/singer-github import-bigquery <my-table>.json```

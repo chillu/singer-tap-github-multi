@@ -5,8 +5,8 @@ namespace Chillu\SingerGithubMulti;
 require __DIR__ . '/../vendor/autoload.php';
 
 use Symfony\Component\Console\Application;
-use Chillu\SingerGithubMulti\Commands\ImportCsvCommand;
+use Chillu\SingerGithubMulti\Commands\ImportBigQueryCommand;
 
 $application = new Application();
-$application->add(new ImportCsvCommand());
+$application->add(new ImportBigQueryCommand());
 $application->run();
