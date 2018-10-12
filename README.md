@@ -25,6 +25,9 @@ from [githubarchive](http://www.githubarchive.org/),
 which syncs all global github activity to a [Google BigQuery](https://cloud.google.com/bigquery/)
 data set.
 
+You'll need a list of Github repo identifiers (rather than names)
+to fill into `import.sql`, since those are stable against repo name changes.
+
 Note: Check BigQuery billing before you run queries,
 it can get quite expensive (dollars per query).
 
