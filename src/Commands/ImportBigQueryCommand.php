@@ -7,8 +7,12 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputOption;
 use Sminnee\StitchData\StitchApi;
-use Adbar\Dot;
 
+/**
+ * Splits up into batches for more efficient processing.
+ * Uses special type tables for payloads, to avoid overloading
+ * the base events table with too many columns (slow DB queries).
+ */
 class ImportBigQueryCommand extends Command
 {
     
@@ -16,32 +20,6 @@ class ImportBigQueryCommand extends Command
      * @var StitchApi
      */
     protected $api;
-
-    protected $eventsTableName = 'events';
-
-    /**
-     * Maps Github Event payloads to flattened data columns.
-     * Filters data to avoid large schemas.
-     *
-     * @var array
-     */
-    protected $eventKeyMap = [
-        'id' => 'string',
-        'type' => 'string',
-        'created_at' => 'time',
-        'repo_name' => 'string',
-        'actor_login' => 'string',
-        'payload.action' => 'string',
-        'payload.ref_type' => 'string',
-        'payload.pusher_type' => 'string',
-        'payload.issue.id' => 'string',
-        'payload.issue.number' => 'string',
-        'payload.issue.label' => 'string',
-        'payload.pull_request.id' => 'string',
-        'payload.pull_request.number' => 'string',
-        'payload.pull_request.state' => 'string',
-        'payload.pull_request.user.login' => 'string',
-    ];
         
     protected function configure()
     {
@@ -49,6 +27,8 @@ class ImportBigQueryCommand extends Command
             ->setName('import-bigquery')
             ->setDescription('Imports a Google Bigquery JSON export into Stitchdata')
             ->addArgument('file', InputArgument::REQUIRED, 'JSON file to import')
+            ->addOption('offset', null, InputOption::VALUE_OPTIONAL, 'Start later in the file', 0)
+            ->addOption('batch-size', null, InputOption::VALUE_OPTIONAL, 'Size of batches sent to Stitchdata', 50)
             ->addOption('client-id', null, InputOption::VALUE_REQUIRED, 'Stitchdata Client ID')
             ->addOption('client-token', null, InputOption::VALUE_REQUIRED, 'Stitchdata Client Token');
     }
@@ -56,6 +36,8 @@ class ImportBigQueryCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $file = $input->getArgument('file');
+        $offset = $input->getOption('offset');
+        $batchSize = $input->getOption('batch-size');
         $clientId = $input->getOption('client-id');
         $clientToken = $input->getOption('client-token');
         
@@ -64,63 +46,106 @@ class ImportBigQueryCommand extends Command
         $this->api = $api;
 
         // Efficiently walk through JSON
-        $batchSize = 100;
-        $eventBatch = [];
+        // Every loop causes two event writes (one base table and one for type specific tables)
+        // See limitations at https://www.stitchdata.com/docs/integrations/import-api
+        $batchCount = 0;
+        $batch = [];
+        $currLine = 0;
         if (($handle = fopen($file, "r")) !== false) {
             while (($data = fgets($handle, 1024*1024)) !== false) {
+                $currLine++;
+
+                if ($currLine < $offset) {
+                    continue;
+                }
+
                 $event = json_decode($data, true);
+                $event = $this->convertDataTypes($event);
+                $eventTypeTable = strtolower(preg_replace('/Event$/', '', $event['type']));
+
+                echo sprintf("Processing event id %s\n", $event['id']);
 
                 // Decode separate payload (inlined via Google Bigquery)
                 if (isset($event['payload'])) {
                     $event['payload'] = json_decode($event['payload'], true);
                 }
-                
-                // Process in batch
-                $eventBatch[] = $this->flattenEvent($event);
-                if (count($eventBatch) === $batchSize) {
-                    $this->pushEvents($eventBatch);
-                }
 
-                // TODO Push last events
+                // Base table batch
+                $batch['events'] = $batch['events'] ?? [];
+                $batch['events'][] = $this->getBaseEvent($event);
+
+                // One batch for each type
+                $batch["events_{$eventTypeTable}"] = $batch["events_{$eventTypeTable}"] ?? [];
+                $batch["events_{$eventTypeTable}"][] = $this->getTypeEvent($event);
+
+                $batchCount++;
+                
+                if ($batchCount >= $batchSize) {
+                    $this->pushEvents($batch);
+                    $batch = [];
+                    $batchCount = 0;
+                }
             }
+
+            // Push last events
+            $this->pushEvents($batch);
+
             fclose($handle);
         }
     }
 
-    protected function flattenEvent($event)
+    /**
+     * @param array $batch
+     * @return void
+     */
+    protected function pushEvents($batch)
     {
-        $dot = new Dot($event);
-        
-        $flattened = [];
-        // $flattened['id'] = $dot->get('id');
-
-        foreach ($this->eventKeyMap as $path => $type) {
-            $key = str_replace('.', '_', $path);
-            $val = $dot->get($path);
-
-            // Skip empty values (otherwise Stitch API complains)
-            if (is_null($val)) continue;
-
-            // Casting
-            if ($type === 'time') {
-                $val = new \DateTime($val);
-            } else if ($type === 'time') {
-                $val = (bool)$val;
-            }
-
-            $flattened[$key] = $val;
+        foreach ($batch as $table => $events) {
+            $this->api->pushRecords($table, ['id'], $events);
         }
-
-        return $flattened;
     }
 
-    protected function pushEvents($eventBatch)
+    /**
+     * Add some type hints for singer
+     *
+     * @param array $event
+     * @return array
+     */
+    protected function convertDataTypes($event)
     {
-        var_dump($eventBatch);
-        $this->api->pushRecords(
-            $this->eventsTableName,
-            ['id'],
-            $eventBatch
+        // Pass by reference, sigh
+        array_walk_recursive($event, function (&$item, $key) {
+            if (preg_match('/_at$/', $key)) {
+                $item = new \DateTime($item);
+                return;
+            }
+        });
+        
+        return $event;
+    }
+
+    /**
+     * @param array $event
+     * @return array
+     */
+    protected function getBaseEvent($event)
+    {
+        if (isset($event['payload'])) {
+            unset($event['payload']);
+        }
+
+        return $event;
+    }
+
+    /**
+     * @param array $event
+     * @return array
+     */
+    protected function getTypeEvent($event)
+    {
+        return array_merge(
+            ['id' => $event['id']],
+            $event['payload']
         );
     }
 }
