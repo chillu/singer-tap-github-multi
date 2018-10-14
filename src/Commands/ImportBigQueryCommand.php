@@ -27,7 +27,8 @@ class ImportBigQueryCommand extends Command
             ->setName('import-bigquery')
             ->setDescription('Imports a Google Bigquery JSON export into Stitchdata')
             ->addArgument('file', InputArgument::REQUIRED, 'JSON file to import')
-            ->addOption('offset', null, InputOption::VALUE_OPTIONAL, 'Start later in the file', 0)
+            ->addOption('offset', null, InputOption::VALUE_OPTIONAL, 'Start at a position', 0)
+            ->addOption('after', null, InputOption::VALUE_OPTIONAL, 'Start after an identifier', 0)
             ->addOption('batch-size', null, InputOption::VALUE_OPTIONAL, 'Size of batches sent to Stitchdata', 50)
             ->addOption('client-id', null, InputOption::VALUE_REQUIRED, 'Stitchdata Client ID')
             ->addOption('client-token', null, InputOption::VALUE_REQUIRED, 'Stitchdata Client Token');
@@ -37,6 +38,7 @@ class ImportBigQueryCommand extends Command
     {
         $file = $input->getArgument('file');
         $offset = $input->getOption('offset');
+        $after = $input->getOption('after');
         $batchSize = $input->getOption('batch-size');
         $clientId = $input->getOption('client-id');
         $clientToken = $input->getOption('client-token');
@@ -51,6 +53,7 @@ class ImportBigQueryCommand extends Command
         $batchCount = 0;
         $batch = [];
         $currLine = 0;
+        $isAfter = false;
         if (($handle = fopen($file, "r")) !== false) {
             while (($data = fgets($handle, 1024*1024)) !== false) {
                 $currLine++;
@@ -68,6 +71,15 @@ class ImportBigQueryCommand extends Command
                 // Assumes those events are immutable to avoid duplicates on repeat imports.
                 if (!isset($event['id'])) {
                     $event['id'] = md5(json_encode($event));
+                }
+
+                if (!$isAfter && $event['id'] == $after) {
+                    $isAfter = true;
+                    continue;
+                }
+
+                if (!$isAfter) {
+                    continue;
                 }
 
                 echo sprintf("Processing event id %s\n", $event['id']);
