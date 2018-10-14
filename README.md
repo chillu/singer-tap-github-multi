@@ -38,7 +38,7 @@ it can get quite expensive (dollars per query).
 1. Adjust date range in `import.sql`.
    It will get all event data. Adjust the date ranges accordingly.
 1. Copy query results into the destination table (replace values):
-   ```cat import.sql | bq query --destination_table <my-dataset>.<my-table>```
+   ```cat import.sql | bq query --replace --destination_table <my-dataset>.<my-table>```
 1. Extract table into CSV
    ```bq extract --destination_format=NEWLINE_DELIMITED_JSON --compression=GZIP <my-dataset>.<my-table> gs://<my-bucket>/<my-table>.json.gz```
 1. Download and extract your data
