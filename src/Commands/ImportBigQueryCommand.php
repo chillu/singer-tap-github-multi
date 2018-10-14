@@ -63,6 +63,13 @@ class ImportBigQueryCommand extends Command
                 $event = $this->convertDataTypes($event);
                 $eventTypeTable = strtolower(preg_replace('/Event$/', '', $event['type']));
 
+                // Polyfill unique identifier (required for stitch).
+                // Older records in Github don't have this (>2015).
+                // Assumes those events are immutable to avoid duplicates on repeat imports.
+                if (!isset($event['id'])) {
+                    $event['id'] = md5(json_encode($event));
+                }
+
                 echo sprintf("Processing event id %s\n", $event['id']);
 
                 // Decode separate payload (inlined via Google Bigquery)
