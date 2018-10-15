@@ -164,7 +164,7 @@ class ImportBigQueryCommand extends Command
     {
         return array_merge(
             ['id' => $event['id']],
-            $event['payload']
+            $event['payload'] ?? []
         );
     }
 }
